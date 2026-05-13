@@ -1,0 +1,8 @@
+{
+  "name": "نظام استعلام اختبارات الطلاب",
+  "description": "تطبيق متطور للاستعلام عن بيانات قاعات وجداول اختبارات الطلاب باستخدام الاسم، مع إمكانية الربط بـ Google Sheets.",
+  "requestFramePermissions": [
+    "identity-credentials-get"
+  ],
+  "majorCapabilities": []
+}
