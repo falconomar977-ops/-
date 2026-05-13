@@ -10,11 +10,17 @@ import Papa from "papaparse";
 const SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vSFd3exiUJcYQBvpF7qSx75aDCXFm27mXeL90irBLsklrA254ZIbLYBiebrUMsjaAmH1cgPvNpyhQ8g/pub?output=csv";
 
 export class StudentService {
-  private ai: GoogleGenAI;
+  private ai: GoogleGenAI | null = null;
   private cachedData: Student[] = [];
 
-  constructor() {
-    this.ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+  private getAI() {
+    if (this.ai) return this.ai;
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey || apiKey === "MY_GEMINI_API_KEY") {
+      return null;
+    }
+    this.ai = new GoogleGenAI({ apiKey });
+    return this.ai;
   }
 
   private async fetchData(): Promise<Student[]> {
@@ -92,28 +98,31 @@ export class StudentService {
     }
 
     // AI Smart Match
-    try {
-      const response = await this.ai.models.generateContent({
-        model: "gemini-1.5-flash",
-        contents: `المستخدم بحث عن: "${trimmedName}"`,
-        config: {
-          systemInstruction: `أنت مساعد ذكي لنظام استعلام طلابي. 
-          قائمة الطلاب المتاحة هي: ${students.map(s => s.name).slice(0, 50).join(", ")}.
-          إذا كان الاسم الذي أدخله المستخدم قريباً من أحد الأسماء في القائمة (بسبب خطأ إملائي مثلاً)، اقترح الاسم الصحيح.
-          أجب فقط بصيغة JSON: {"suggestion": "الاسم المقترح"} أو {"suggestion": null} إذا لم يكن هناك تشابه واضح.`,
-          responseMimeType: "application/json"
-        }
-      });
+    const aiClient = this.getAI();
+    if (aiClient) {
+      try {
+        const response = await aiClient.models.generateContent({
+          model: "gemini-1.5-flash",
+          contents: `المستخدم بحث عن: "${trimmedName}"`,
+          config: {
+            systemInstruction: `أنت مساعد ذكي لنظام استعلام طلابي. 
+            قائمة الطلاب المتاحة هي: ${students.map(s => s.name).slice(0, 50).join(", ")}.
+            إذا كان الاسم الذي أدخله المستخدم قريباً من أحد الأسماء في القائمة (بسبب خطأ إملائي مثلاً)، اقترح الاسم الصحيح.
+            أجب فقط بصيغة JSON: {"suggestion": "الاسم المقترح"} أو {"suggestion": null} إذا لم يكن هناك تشابه واضح.`,
+            responseMimeType: "application/json"
+          }
+        });
 
-      const result = JSON.parse(response.text || "{}");
-      if (result.suggestion) {
-        return { 
-          error: `لم يتم العثور على الاسم بدقة. هل تقصد: ${result.suggestion}؟`, 
-          suggestions: [result.suggestion] 
-        };
+        const result = JSON.parse(response.text || "{}");
+        if (result.suggestion) {
+          return { 
+            error: `لم يتم العثور على الاسم بدقة. هل تقصد: ${result.suggestion}؟`, 
+            suggestions: [result.suggestion] 
+          };
+        }
+      } catch (e) {
+        console.error("AI Search Error:", e);
       }
-    } catch (e) {
-      console.error("AI Search Error:", e);
     }
 
     return { error: "الاسم غير موجود في السجلات. يرجى التأكد من كتابة الاسم ثلاثياً بشكل صحيح." };
