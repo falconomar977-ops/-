@@ -16,6 +16,8 @@ export interface Student {
   hall: string;
   committee: string;
   column: string;
+  grade?: string;
+  scheduleImageUrl?: string;
   exams: Exam[];
 }
 

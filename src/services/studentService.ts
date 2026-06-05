@@ -23,11 +23,40 @@ export class StudentService {
     return this.ai;
   }
 
-  private async fetchData(): Promise<Student[]> {
-    if (this.cachedData.length > 0) return this.cachedData;
+  private cleanImageUrl(url: string): string {
+    if (!url) return "";
+    const trimmed = url.trim();
+    
+    // Google Drive File viewer link: https://drive.google.com/file/d/FILE_ID/view...
+    const driveFileRegex = /drive\.google\.com\/file\/d\/([a-zA-Z0-9_-]+)/;
+    const match = trimmed.match(driveFileRegex);
+    if (match && match[1]) {
+      return `https://docs.google.com/uc?export=view&id=${match[1]}`;
+    }
 
+    // Google Drive open link: https://drive.google.com/open?id=FILE_ID
+    const driveOpenRegex = /drive\.google\.com\/open\?id=([a-zA-Z0-9_-]+)/;
+    const matchOpen = trimmed.match(driveOpenRegex);
+    if (matchOpen && matchOpen[1]) {
+      return `https://docs.google.com/uc?export=view&id=${matchOpen[1]}`;
+    }
+    
+    // Google Drive direct sharing folder/d/
+    const driveDRegex = /drive\.google\.com\/d\/([a-zA-Z0-9_-]+)/;
+    const matchD = trimmed.match(driveDRegex);
+    if (matchD && matchD[1]) {
+      return `https://docs.google.com/uc?export=view&id=${matchD[1]}`;
+    }
+
+    // Standard Google Sheet publish links or general image links
+    return trimmed;
+  }
+
+  private async fetchData(): Promise<Student[]> {
     try {
-      const response = await fetch(SHEET_CSV_URL);
+      // Append a cache-buster timestamp to prevent browser and CDNs caching the published CSV
+      const cacheBustUrl = `${SHEET_CSV_URL}&t=${Date.now()}`;
+      const response = await fetch(cacheBustUrl);
       const csvText = await response.text();
       
       return new Promise((resolve) => {
@@ -36,6 +65,7 @@ export class StudentService {
           skipEmptyLines: true,
           complete: (results) => {
             const students: Student[] = results.data.map((row: any, index: number) => {
+              const rawImgUrl = row["صورة الجدول"] || row["جدول الصف"] || row["رابط الجدول"] || row["schedule_image"] || row["Image"] || "";
               // Map CSV columns based on expected headers in Arabic or English
               return {
                 id: String(index),
@@ -44,6 +74,8 @@ export class StudentService {
                 hall: row["القاعة"] || row["hall"] || row["Hall"] || "",
                 committee: row["اللجنة"] || row["committee"] || row["Committee"] || "",
                 column: row["العمود"] || row["column"] || row["Column"] || "",
+                grade: row["الصف"] || row["grade"] || row["Grade"] || "",
+                scheduleImageUrl: this.cleanImageUrl(rawImgUrl),
                 exams: this.parseExams(row["الجدول"] || row["exams"] || "")
               };
             });
@@ -54,8 +86,22 @@ export class StudentService {
       });
     } catch (error) {
       console.error("Error fetching sheet data:", error);
-      return [];
+      // Fallback to cached data if network request fails
+      return this.cachedData;
     }
+  }
+
+  async getGrades(): Promise<string[]> {
+    const students = await this.fetchData();
+    const grades = students.map(s => s.grade?.trim()).filter(Boolean) as string[];
+    return Array.from(new Set(grades));
+  }
+
+  async getScheduleImageForGrade(gradeName: string): Promise<string> {
+    if (!gradeName) return "";
+    const students = await this.fetchData();
+    const studentWithImg = students.find(s => s.grade?.trim() === gradeName.trim() && s.scheduleImageUrl);
+    return studentWithImg?.scheduleImageUrl || "";
   }
 
   private parseExams(examStr: string): Exam[] {
